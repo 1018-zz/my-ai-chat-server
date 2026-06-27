@@ -18,17 +18,18 @@ const openai = new OpenAI({
   apiKey: process.env.DEEPSEEK_API_KEY,
 })
 
-// ==================== 聊天接口（含存储） ====================
+// ==================== 聊天接口 ====================
 app.post('/api/chat', async (req, res) => {
   const { messages, model = 'deepseek-chat', conversationId } = req.body
 
   try {
-    // 如果没有会话 ID，自动创建一个新会话
+    // 如果没有会话 ID，自动创建新会话
     let convId = conversationId
     if (!convId) {
+      const lastMsg = messages[messages.length - 1]?.content || '新对话'
       const { data: newConv } = await supabase
         .from('conversations')
-        .insert({ title: messages[messages.length - 1]?.content?.slice(0, 30) || '新对话' })
+        .insert({ title: lastMsg.slice(0, 30) })
         .select('id')
         .single()
       convId = newConv.id
@@ -72,7 +73,7 @@ app.post('/api/chat', async (req, res) => {
       conversationId: convId,
     })
   } catch (error) {
-    console.error('API Error:', error.message)
+    console.error('Chat Error:', error.message)
     res.status(500).json({ error: error.message })
   }
 })
@@ -80,7 +81,6 @@ app.post('/api/chat', async (req, res) => {
 // ==================== 历史消息接口 ====================
 app.get('/api/messages', async (req, res) => {
   const { conversationId } = req.query
-
   if (!conversationId) {
     return res.status(400).json({ error: 'conversationId is required' })
   }
@@ -91,10 +91,7 @@ app.get('/api/messages', async (req, res) => {
     .eq('conversation_id', conversationId)
     .order('created_at', { ascending: true })
 
-  if (error) {
-    return res.status(500).json({ error: error.message })
-  }
-
+  if (error) return res.status(500).json({ error: error.message })
   res.json({ messages: data })
 })
 
@@ -105,11 +102,22 @@ app.get('/api/conversations', async (req, res) => {
     .select('*')
     .order('updated_at', { ascending: false })
 
-  if (error) {
-    return res.status(500).json({ error: error.message })
-  }
-
+  if (error) return res.status(500).json({ error: error.message })
   res.json({ conversations: data })
+})
+
+// ==================== 创建会话接口 ====================
+app.post('/api/conversations', async (req, res) => {
+  const { title } = req.body
+
+  const { data, error } = await supabase
+    .from('conversations')
+    .insert({ title: title || '新对话' })
+    .select('id')
+    .single()
+
+  if (error) return res.status(500).json({ error: error.message })
+  res.json({ id: data.id })
 })
 
 // ==================== 启动 ====================
