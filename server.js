@@ -120,6 +120,36 @@ app.post('/api/conversations', async (req, res) => {
   res.json({ id: data.id })
 })
 
+// ==================== 记忆检索接口 ====================
+app.post('/api/memories/search', async (req, res) => {
+  const { query, limit = 3 } = req.body
+  if (!query) return res.status(400).json({ error: 'query is required' })
+
+  try {
+    // 从 memories 表检索
+    const { data: memories } = await supabase
+      .from('memories')
+      .select('summary')
+      .or(`summary.ilike.%${query}%`)
+      .limit(limit)
+
+    // 从 messages 表检索最近的包含关键词的消息
+    const { data: messages } = await supabase
+      .from('messages')
+      .select('role, content')
+      .or(`content.ilike.%${query}%`)
+      .order('created_at', { ascending: false })
+      .limit(5)
+
+    res.json({
+      memories: memories || [],
+      relatedMessages: messages || [],
+    })
+  } catch (error) {
+    res.status(500).json({ error: error.message })
+  }
+})
+
 // ==================== 启动 ====================
 const PORT = process.env.PORT || 10000
 app.listen(PORT, () => {
