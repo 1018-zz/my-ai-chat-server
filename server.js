@@ -18,12 +18,11 @@ const openai = new OpenAI({
   apiKey: process.env.DEEPSEEK_API_KEY,
 })
 
-// ==================== 聊天接口 ====================
+// ==================== 普通聊天接口 ====================
 app.post('/api/chat', async (req, res) => {
   const { messages, model = 'deepseek-chat', conversationId } = req.body
 
   try {
-    // 如果没有会话 ID，自动创建新会话
     let convId = conversationId
     if (!convId) {
       const lastMsg = messages[messages.length - 1]?.content || '新对话'
@@ -35,7 +34,6 @@ app.post('/api/chat', async (req, res) => {
       convId = newConv.id
     }
 
-    // 调用 DeepSeek
     const completion = await openai.chat.completions.create({
       messages,
       model,
@@ -45,7 +43,6 @@ app.post('/api/chat', async (req, res) => {
     const aiContent = completion.choices[0].message.content
     const userMessage = messages[messages.length - 1]
 
-    // 存储用户消息
     await supabase.from('messages').insert({
       conversation_id: convId,
       role: 'user',
@@ -53,7 +50,6 @@ app.post('/api/chat', async (req, res) => {
       token_count: completion.usage?.prompt_tokens || 0,
     })
 
-    // 存储 AI 回复
     await supabase.from('messages').insert({
       conversation_id: convId,
       role: 'assistant',
@@ -61,29 +57,79 @@ app.post('/api/chat', async (req, res) => {
       token_count: completion.usage?.completion_tokens || 0,
     })
 
-    // 更新会话时间
-    await supabase
-      .from('conversations')
+    await supabase.from('conversations')
       .update({ updated_at: new Date().toISOString() })
       .eq('id', convId)
 
-    res.json({
-      content: aiContent,
-      usage: completion.usage,
-      conversationId: convId,
-    })
+    res.json({ content: aiContent, usage: completion.usage, conversationId: convId })
   } catch (error) {
     console.error('Chat Error:', error.message)
     res.status(500).json({ error: error.message })
   }
 })
 
+// ==================== 流式聊天接口 ====================
+app.post('/api/chat/stream', async (req, res) => {
+  const { messages, model = 'deepseek-chat', conversationId } = req.body
+
+  res.setHeader('Content-Type', 'text/event-stream')
+  res.setHeader('Cache-Control', 'no-cache')
+  res.setHeader('Connection', 'keep-alive')
+
+  try {
+    let convId = conversationId
+    if (!convId) {
+      const lastMsg = messages[messages.length - 1]?.content || '新对话'
+      const { data: newConv } = await supabase
+        .from('conversations')
+        .insert({ title: lastMsg.slice(0, 30) })
+        .select('id')
+        .single()
+      convId = newConv.id
+    }
+
+    const userMessage = messages[messages.length - 1]
+    await supabase.from('messages').insert({
+      conversation_id: convId,
+      role: 'user',
+      content: userMessage.content,
+    })
+
+    const stream = await openai.chat.completions.create({
+      messages,
+      model,
+      temperature: 0.7,
+      stream: true,
+    })
+
+    let fullContent = ''
+
+    for await (const chunk of stream) {
+      const delta = chunk.choices[0]?.delta?.content
+      if (delta) {
+        fullContent += delta
+        res.write(`data: ${JSON.stringify({ content: delta })}\n\n`)
+      }
+    }
+
+    await supabase.from('messages').insert({
+      conversation_id: convId,
+      role: 'assistant',
+      content: fullContent,
+    })
+
+    res.write(`data: ${JSON.stringify({ done: true, conversationId: convId })}\n\n`)
+    res.end()
+  } catch (error) {
+    res.write(`data: ${JSON.stringify({ error: error.message })}\n\n`)
+    res.end()
+  }
+})
+
 // ==================== 历史消息接口 ====================
 app.get('/api/messages', async (req, res) => {
   const { conversationId } = req.query
-  if (!conversationId) {
-    return res.status(400).json({ error: 'conversationId is required' })
-  }
+  if (!conversationId) return res.status(400).json({ error: 'conversationId is required' })
 
   const { data, error } = await supabase
     .from('messages')
@@ -126,14 +172,12 @@ app.post('/api/memories/search', async (req, res) => {
   if (!query) return res.status(400).json({ error: 'query is required' })
 
   try {
-    // 从 memories 表检索
     const { data: memories } = await supabase
       .from('memories')
       .select('summary')
       .or(`summary.ilike.%${query}%`)
       .limit(limit)
 
-    // 从 messages 表检索最近的包含关键词的消息
     const { data: messages } = await supabase
       .from('messages')
       .select('role, content')
@@ -141,10 +185,7 @@ app.post('/api/memories/search', async (req, res) => {
       .order('created_at', { ascending: false })
       .limit(5)
 
-    res.json({
-      memories: memories || [],
-      relatedMessages: messages || [],
-    })
+    res.json({ memories: memories || [], relatedMessages: messages || [] })
   } catch (error) {
     res.status(500).json({ error: error.message })
   }
@@ -152,6 +193,4 @@ app.post('/api/memories/search', async (req, res) => {
 
 // ==================== 启动 ====================
 const PORT = process.env.PORT || 10000
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`)
-})
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`))
