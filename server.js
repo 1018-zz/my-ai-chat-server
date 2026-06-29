@@ -185,7 +185,18 @@ app.post('/api/memories/search', async (req, res) => {
       .order('created_at', { ascending: false })
       .limit(5)
 
-    res.json({ memories: memories || [], relatedMessages: messages || [] })
+      // 始终返回最近 5 条消息
+const { data: recentMessages } = await supabase
+  .from('messages')
+  .select('role, content, created_at')
+  .order('created_at', { ascending: false })
+  .limit(5)
+
+   res.json({
+  memories: memories || [],
+  relatedMessages: messages || [],
+  recentMessages: recentMessages || [],
+})
   } catch (error) {
     res.status(500).json({ error: error.message })
   }
