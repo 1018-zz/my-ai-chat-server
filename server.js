@@ -205,3 +205,16 @@ const { data: recentMessages } = await supabase
 // ==================== 启动 ====================
 const PORT = process.env.PORT || 10000
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`))
+
+// ==================== 删除会话接口 ====================
+app.delete('/api/conversations/:id', async (req, res) => {
+  const { id } = req.params
+
+  // 先删除该会话下的所有消息
+  await supabase.from('messages').delete().eq('conversation_id', id)
+  // 再删除会话本身
+  const { error } = await supabase.from('conversations').delete().eq('id', id)
+
+  if (error) return res.status(500).json({ error: error.message })
+  res.json({ success: true })
+})
