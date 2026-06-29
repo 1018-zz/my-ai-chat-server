@@ -215,6 +215,52 @@ app.delete('/api/conversations/:id', async (req, res) => {
   res.json({ success: true })
 })
 
+// ==================== GitHub 工具接口 ====================
+const GITHUB_API = 'https://api.github.com'
+
+// 读取仓库文件
+app.get('/api/github/file', async (req, res) => {
+  const { path, repo } = req.query
+  if (!path) return res.status(400).json({ error: 'path is required' })
+  const targetRepo = repo || process.env.GITHUB_REPO
+
+  try {
+    const response = await fetch(
+      `${GITHUB_API}/repos/${process.env.GITHUB_OWNER}/${targetRepo}/contents/${path}`,
+      { headers: { Authorization: `token ${process.env.GITHUB_TOKEN}`, 'User-Agent': 'my-ai-chat' } }
+    )
+    const data = await response.json()
+    if (data.content) {
+      res.json({ path, content: Buffer.from(data.content, 'base64').toString('utf-8') })
+    } else {
+      res.json(data)
+    }
+  } catch (error) {
+    res.status(500).json({ error: error.message })
+  }
+})
+
+// 列出仓库目录
+app.get('/api/github/tree', async (req, res) => {
+  const { path = '', repo } = req.query
+  const targetRepo = repo || process.env.GITHUB_REPO
+
+  try {
+    const response = await fetch(
+      `${GITHUB_API}/repos/${process.env.GITHUB_OWNER}/${targetRepo}/contents/${path}`,
+      { headers: { Authorization: `token ${process.env.GITHUB_TOKEN}`, 'User-Agent': 'my-ai-chat' } }
+    )
+    const data = await response.json()
+    if (Array.isArray(data)) {
+      res.json({ items: data.map(item => ({ name: item.name, type: item.type, path: item.path })) })
+    } else {
+      res.json(data)
+    }
+  } catch (error) {
+    res.status(500).json({ error: error.message })
+  }
+})
+
 // ==================== 启动 ====================
 const PORT = process.env.PORT || 10000
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`))
