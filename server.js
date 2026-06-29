@@ -61,7 +61,17 @@ app.post('/api/chat', async (req, res) => {
       .update({ updated_at: new Date().toISOString() })
       .eq('id', convId)
 
+      // 检查 AI 回复中是否有需要记住的内容
+    const memoryMatch = aiContent.match(/<!--\s*记住[：:]\s*(.+?)\s*-->/)
+    if (memoryMatch) {
+      const memoryText = memoryMatch[1].trim()
+      await supabase.from('memories').insert({ summary: memoryText })
+      console.log('自动沉淀记忆:', memoryText)
+    }
+
     res.json({ content: aiContent, usage: completion.usage, conversationId: convId })
+   
+      res.json({ content: aiContent, usage: completion.usage, conversationId: convId })
   } catch (error) {
     console.error('Chat Error:', error.message)
     res.status(500).json({ error: error.message })
@@ -118,7 +128,16 @@ app.post('/api/chat/stream', async (req, res) => {
       content: fullContent,
     })
 
-    res.write(`data: ${JSON.stringify({ done: true, conversationId: convId })}\n\n`)
+       res.write(`data: ${JSON.stringify({ done: true, conversationId: convId })}\n\n`)
+
+    // 检查 AI 回复中是否有需要记住的内容
+    const memoryMatch = fullContent.match(/<!--\s*记住[：:]\s*(.+?)\s*-->/)
+    if (memoryMatch) {
+      const memoryText = memoryMatch[1].trim()
+      await supabase.from('memories').insert({ summary: memoryText })
+      console.log('自动沉淀记忆:', memoryText)
+    }
+
     res.end()
   } catch (error) {
     res.write(`data: ${JSON.stringify({ error: error.message })}\n\n`)
